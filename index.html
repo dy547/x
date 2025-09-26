@@ -1,69 +1,190 @@
-<!doctype html>
-<html lang="zh-CN">
+# Build an English-only LLaVA-style site that embeds the user's six result PDFs at paths:
+# pdf/jpeg10_web1_225.pdf, pdf/jpeg10_web1_258.pdf, pdf/jpeg10_web1_265.pdf,
+# pdf/jpeg10_web1_294.pdf, pdf/jpeg10_web1_297.pdf, pdf/jpeg10_web1_298.pdf
+
+import os, zipfile, re, textwrap, shutil
+
+root = "/mnt/data/c-relic-llava-style-pdf-en"
+if os.path.exists(root):
+    shutil.rmtree(root)
+os.makedirs(os.path.join(root, "assets", "css"), exist_ok=True)
+os.makedirs(os.path.join(root, "pdf"), exist_ok=True)
+open(os.path.join(root, ".nojekyll"), "w").write("")
+
+# Minimal clean CSS (English-only labels)
+css = """
+:root{--line:#e5e7eb;--muted:#4b5563}
+*{box-sizing:border-box}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:0;color:#111}
+a{color:#2563eb;text-decoration:none}a:hover{text-decoration:underline}
+.container{max-width:980px;margin:0 auto;padding:0 16px}
+.topbar{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);z-index:50}
+.nav{display:flex;justify-content:space-between;align-items:center;height:64px}
+.brand{font-weight:800}
+.section{padding:36px 0}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px}
+.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:#fff}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{border-top:1px solid var(--line);padding:8px;white-space:nowrap}
+thead th{position:sticky;top:0;background:#f8fafc;border-bottom:1px solid var(--line)}
+.center{text-align:center}
+.best{color:#dc2626;font-weight:800}
+.second{color:#1e40af;text-decoration:underline;font-weight:700}
+.pdf-embed{width:100%;height:360px;border:1px solid var(--line);border-radius:8px}
+.pdf-embed.small{height:280px}
+.pdf-fallback{font-size:12px;color:var(--muted)}
+.footer{border-top:1px solid var(--line);padding:28px 0;color:var(--muted);text-align:center}
+"""
+open(os.path.join(root, "assets", "css", "site.css"), "w").write(css)
+
+title = "Decomposing the Latent Space: A Phase-aware Plug-and-Play Approach for Universal Compressed Image Restoration"
+abstract_tex = r"""Universal compressed image restoration (CIR) aims to recover high-quality images from lossy compressed inputs using a single model that generalizes across diverse codecs. While recent diffusion-based methods have shown promise, they often rely on task-specific tuning and pixel-space decoding, limiting flexibility and robustness. In this paper, we propose a phase-aware and plug-and-play framework for universal CIR, termed C-ReLIC (\textbf{C}ompression \textbf{Re}storation with \textbf{L}atent \textbf{I}nvertible \textbf{C}onsistency). At its core is the Bidirectional Latent-Operator Consistency (Bi-LOC) block, a novel mechanism that factorizes latent features into measurement and detail components via an invertible operator, enabling bidirectional consistency for both fidelity and detail preservation. To further enhance quality, our algorithm adopts a phase-aware strategy that anchors the early phase of reverse diffusion to global structure and refines perceptual quality in the late phase. Experiments show that C-ReLIC achieves state-of-the-art perceptual performance across diverse codecs, offering a superior distortion–perception trade-off."""
+abstract_html = re.sub(r"\\textbf\{(.*?)\}", r"<strong>\1</strong>", abstract_tex)
+
+def best(x): return '<span class="best">'+x+'</span>'
+def second(x): return '<span class="second">'+x+'</span>'
+def row(c,m,v,psnr,lpips,dists,fid,niqe,musiq,cl):
+    return f"<tr><td class='center'>{c}</td><td>{m}</td><td>{v}</td><td class='center'>{psnr}</td><td class='center'>{lpips}</td><td class='center'>{dists}</td><td class='center'>{fid}</td><td class='center'>{niqe}</td><td class='center'>{musiq}</td><td class='center'>{cl}</td></tr>"
+
+tbody = ""
+# JPEG
+tbody += row("JPEG","SwinIR","ICCV'21", second("30.09"), "0.4746", "0.2640", "117.20", "8.1017", "50.25", "0.3127")
+tbody += row("JPEG","PASD","ICCV'23", "29.22", "0.5905", "0.3115", "134.57", "5.0570", "49.56", "0.2272")
+tbody += row("JPEG","DiffBIR","ECCV'24", "28.28", "0.6896", "0.3653", "140.95", "6.3628", "33.84", "0.2480")
+tbody += row("JPEG","SILO","ICCV'25", "25.89", "0.4261", second("0.2012"), second("67.46"), "5.9229", second("55.51"), second("0.4485"))
+tbody += row("JPEG","Moe-DiffIR","ECCV'24", best("30.52"), second("0.4171"), "0.2057", "78.62", best("4.7938"), "53.76", "0.4046")
+tbody += row("JPEG","Ours","--", "26.15", best("0.3941"), best("0.1735"), best("64.12"), second("5.0502"), best("72.26"), best("0.6271"))
+# HEVC
+tbody += row("HEVC","SwinIR","ICCV'21", best("30.68"), "0.4179", "0.2393", "105.29", "8.0999", "51.85", "0.3536")
+tbody += row("HEVC","PASD","ICCV'23", "29.97", "0.3600", "0.1618", "67.17", "5.3200", "70.81", "0.5463")
+tbody += row("HEVC","DiffBIR","ECCV'24", "28.44", "0.3702", "0.1732", "62.90", "6.1407", second("71.65"), best("0.7112"))
+tbody += row("HEVC","SILO","ICCV'25", "26.94", "0.3675", "0.1777", "60.17", "5.7922", "58.32", "0.4596")
+tbody += row("HEVC","Moe-DiffIR","ECCV'24", second("30.44"), second("0.3472"), second("0.1526"), second("59.93"), second("5.0408"), "59.41", "0.5135")
+tbody += row("HEVC","Ours","--", "28.93", best("0.3118"), best("0.1395"), best("49.52"), best("4.9164"), best("74.99"), second("0.6422"))
+# C_PSNR
+tbody += row("C_PSNR","SwinIR","ICCV'21", "31.33", "0.4012", "0.2386", "108.64", "8.0489", "54.80", "0.3717")
+tbody += row("C_PSNR","PASD","ICCV'23", second("31.41"), "0.3549", "0.1968", "98.74", "6.1762", "67.97", "0.4750")
+tbody += row("C_PSNR","DiffBIR","ECCV'24", "28.33", "0.3258", second("0.1601"), "65.86", "6.4165", best("75.67"), best("0.7839"))
+tbody += row("C_PSNR","SILO","ICCV'25", "26.79", "0.3945", "0.2209", "85.72", "7.4365", "51.04", "0.3961")
+tbody += row("C_PSNR","Moe-DiffIR","ECCV'24", best("32.00"), second("0.3126"), "0.1610", best("61.01"), second("5.5442"), "62.79", "0.5226")
+tbody += row("C_PSNR","Ours","--", "28.88", best("0.3069"), best("0.1472"), second("61.53"), best("5.0523"), second("75.62"), second("0.7047"))
+# C_SSIM
+tbody += row("C_SSIM","SwinIR","ICCV'21", second("31.19"), "0.3876", "0.2275", "104.32", "7.7405", "54.54", "0.3906")
+tbody += row("C_SSIM","PASD","ICCV'23", "31.11", "0.3311", "0.1753", "82.30", "5.2647", "68.92", "0.5033")
+tbody += row("C_SSIM","DiffBIR","ECCV'24", "28.20", "0.3238", "0.1542", "57.85", "6.1586", best("75.93"), best("0.7897"))
+tbody += row("C_SSIM","SILO","ICCV'25", "26.70", "0.3965", "0.2197", "85.32", "7.3315", "48.38", "0.3795")
+tbody += row("C_SSIM","Moe-DiffIR","ECCV'24", best("31.50"), second("0.3041"), second("0.1534"), best("50.12"), second("5.2141"), "58.90", "0.4554")
+tbody += row("C_SSIM","Ours","--", "29.10", best("0.3026"), best("0.1438"), second("55.81"), best("4.7695"), second("75.43"), second("0.6822"))
+# JPEG-WEBP
+tbody += row("JPEG-WEBP","SwinIR","ICCV'21", best("31.08"), "0.4207", "0.2441", "98.19", "8.4159", "51.18", "0.3434")
+tbody += row("JPEG-WEBP","PASD","ICCV'23", "30.35", "0.4081", "0.1857", "74.43", "5.5501", second("64.76"), "0.4217")
+tbody += row("JPEG-WEBP","DiffBIR","ECCV'24", "28.81", "0.4290", "0.2227", "82.12", "6.6159", "63.07", second("0.5424"))
+tbody += row("JPEG-WEBP","SILO","ICCV'25", "27.32", second("0.3602"), "0.1756", second("55.46"), "5.8331", "59.22", "0.4534")
+tbody += row("JPEG-WEBP","Moe-DiffIR","ECCV'24", second("30.93"), "0.3720", second("0.1754"), "69.87", best("4.8520"), "59.59", "0.4405")
+tbody += row("JPEG-WEBP","Ours","--", "27.87", best("0.3492"), best("0.1620"), best("52.77"), second("5.1375"), best("68.16"), best("0.5573"))
+
+table_html = f"""<section id="results-table" class="section">
+  <div class="container">
+    <h2>Quantitative Results</h2>
+    <div class="table-wrap">
+      <table>
+        <caption>Arrows indicate directionality: ↑ higher is better; ↓ lower is better.</caption>
+        <thead><tr><th class="center">Codec</th><th>Method</th><th>Venue</th><th class="center">PSNR ↑</th><th class="center">LPIPS ↓</th><th class="center">DISTS ↓</th><th class="center">FID ↓</th><th class="center">NIQE ↓</th><th class="center">MUSIQ ↑</th><th class="center">ClipIQA ↑</th></tr></thead>
+        <tbody>{tbody}</tbody>
+      </table>
+    </div>
+  </div>
+</section>"""
+
+# Results PDFs section with user's six files (paths under /pdf/)
+pdfs = [
+    "pdf/jpeg10_web1_225.pdf",
+    "pdf/jpeg10_web1_258.pdf",
+    "pdf/jpeg10_web1_265.pdf",
+    "pdf/jpeg10_web1_294.pdf",
+    "pdf/jpeg10_web1_297.pdf",
+    "pdf/jpeg10_web1_298.pdf",
+]
+pdf_figs = []
+for p in pdfs:
+    name = os.path.basename(p)
+    pdf_figs.append(f"""
+    <figure class="card" style="margin-top:12px">
+      <figcaption style="margin-bottom:6px;color:#4b5563">{name}</figcaption>
+      <object class="pdf-embed small" data="{p}" type="application/pdf">
+        <div class="pdf-fallback"><a href="{p}" target="_blank" rel="noopener">Open {name}</a></div>
+      </object>
+    </figure>""")
+
+index = f"""<!doctype html>
+<html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Decomposing the Latent Space: A Phase-aware Plug-and-Play Approach for Universal Compressed Image Restoration</title>
+  <title>{title}</title>
   <link rel="stylesheet" href="assets/css/site.css">
 </head>
 <body>
   <div class="topbar"><div class="container nav"><div class="brand">C-ReLIC</div>
-    <nav><a href="#abstract">摘要</a><a href="#results-table">表格</a><a href="#method">方法</a><a href="#subfig-5x8">子图</a></nav></div></div>
+    <nav><a href="#abstract">Abstract</a><a href="#results-table">Table</a><a href="#pdfs">Result PDFs</a><a href="#bibtex">BibTeX</a></nav></div></div>
 
   <main>
-    <section id="abstract" class="section"><div class="container"><h2>摘要</h2><div class="card"><p>Universal compressed image restoration (CIR) aims to recover high-quality images from lossy compressed inputs using a single model that generalizes across diverse codecs. While recent diffusion-based methods have shown promise, they often rely on task-specific tuning and pixel-space decoding, limiting flexibility and robustness. In this paper, we propose a phase-aware and plug-and-play framework for universal CIR, termed C-ReLIC (<strong>C</strong>ompression <strong>Re</strong>storation with <strong>L</strong>atent <strong>I</strong>nvertible <strong>C</strong>onsistency). At its core is the Bidirectional Latent-Operator Consistency (Bi-LOC) block, a novel mechanism that factorizes latent features into measurement and detail components via an invertible operator, enabling bidirectional consistency for both fidelity and detail preservation. To further enhance quality, our algorithm adopts a phase-aware strategy that anchors the early phase of reverse diffusion to global structure and refines perceptual quality in the late phase. Experiments show that C-ReLIC achieves state-of-the-art perceptual performance across diverse codecs, offering a superior distortion–perception trade-off.</p></div></div></section>
+    <section id="abstract" class="section"><div class="container"><h2>Abstract</h2><div class="card"><p>{abstract_html}</p></div></div></section>
 
-    <section id="method" class="section"><div class="container"><h2>方法主图</h2>
-      <figure class="card">
-        <object class="pdf-embed" data="assets/pdf/method.pdf" type="application/pdf">
-          <div class="pdf-fallback">该浏览器不支持内嵌 PDF。<a href="assets/pdf/method.pdf" target="_blank" rel="noopener">点击下载/打开 PDF</a></div>
-        </object>
-      </figure>
-    </div></section>
+    {table_html}
 
-    <section id="results-table" class="section">
-  <div class="container">
-    <h2>定量结果表</h2>
-    <div class="table-wrap">
-      <table class="res">
-        <caption>↑ 更大更好；↓ 更小更好。</caption>
-        <thead><tr><th class="center">Codec</th><th>Method</th><th>Venue</th><th class="center">PSNR ↑</th><th class="center">LPIPS ↓</th><th class="center">DISTS ↓</th><th class="center">FID ↓</th><th class="center">NIQE ↓</th><th class="center">MUSIQ ↑</th><th class="center">ClipIQA ↑</th></tr></thead>
-        <tbody><tr><td class='center'>JPEG</td><td>SwinIR</td><td>ICCV'21</td><td class='center'><span class="second">30.09</span></td><td class='center'>0.4746</td><td class='center'>0.2640</td><td class='center'>117.20</td><td class='center'>8.1017</td><td class='center'>50.25</td><td class='center'>0.3127</td></tr><tr><td class='center'>JPEG</td><td>PASD</td><td>ICCV'23</td><td class='center'>29.22</td><td class='center'>0.5905</td><td class='center'>0.3115</td><td class='center'>134.57</td><td class='center'>5.0570</td><td class='center'>49.56</td><td class='center'>0.2272</td></tr><tr><td class='center'>JPEG</td><td>DiffBIR</td><td>ECCV'24</td><td class='center'>28.28</td><td class='center'>0.6896</td><td class='center'>0.3653</td><td class='center'>140.95</td><td class='center'>6.3628</td><td class='center'>33.84</td><td class='center'>0.2480</td></tr><tr><td class='center'>JPEG</td><td>SILO</td><td>ICCV'25</td><td class='center'>25.89</td><td class='center'>0.4261</td><td class='center'><span class="second">0.2012</span></td><td class='center'><span class="second">67.46</span></td><td class='center'>5.9229</td><td class='center'><span class="second">55.51</span></td><td class='center'><span class="second">0.4485</span></td></tr><tr><td class='center'>JPEG</td><td>Moe-DiffIR</td><td>ECCV'24</td><td class='center'><span class="best">30.52</span></td><td class='center'><span class="second">0.4171</span></td><td class='center'>0.2057</td><td class='center'>78.62</td><td class='center'><span class="best">4.7938</span></td><td class='center'>53.76</td><td class='center'>0.4046</td></tr><tr><td class='center'>JPEG</td><td>Ours</td><td>--</td><td class='center'>26.15</td><td class='center'><span class="best">0.3941</span></td><td class='center'><span class="best">0.1735</span></td><td class='center'><span class="best">64.12</span></td><td class='center'><span class="second">5.0502</span></td><td class='center'><span class="best">72.26</span></td><td class='center'><span class="best">0.6271</span></td></tr><tr><td class='center'>HEVC</td><td>SwinIR</td><td>ICCV'21</td><td class='center'><span class="best">30.68</span></td><td class='center'>0.4179</td><td class='center'>0.2393</td><td class='center'>105.29</td><td class='center'>8.0999</td><td class='center'>51.85</td><td class='center'>0.3536</td></tr><tr><td class='center'>HEVC</td><td>PASD</td><td>ICCV'23</td><td class='center'>29.97</td><td class='center'>0.3600</td><td class='center'>0.1618</td><td class='center'>67.17</td><td class='center'>5.3200</td><td class='center'>70.81</td><td class='center'>0.5463</td></tr><tr><td class='center'>HEVC</td><td>DiffBIR</td><td>ECCV'24</td><td class='center'>28.44</td><td class='center'>0.3702</td><td class='center'>0.1732</td><td class='center'>62.90</td><td class='center'>6.1407</td><td class='center'><span class="second">71.65</span></td><td class='center'><span class="best">0.7112</span></td></tr><tr><td class='center'>HEVC</td><td>SILO</td><td>ICCV'25</td><td class='center'>26.94</td><td class='center'>0.3675</td><td class='center'>0.1777</td><td class='center'>60.17</td><td class='center'>5.7922</td><td class='center'>58.32</td><td class='center'>0.4596</td></tr><tr><td class='center'>HEVC</td><td>Moe-DiffIR</td><td>ECCV'24</td><td class='center'><span class="second">30.44</span></td><td class='center'><span class="second">0.3472</span></td><td class='center'><span class="second">0.1526</span></td><td class='center'><span class="second">59.93</span></td><td class='center'><span class="second">5.0408</span></td><td class='center'>59.41</td><td class='center'>0.5135</td></tr><tr><td class='center'>HEVC</td><td>Ours</td><td>--</td><td class='center'>28.93</td><td class='center'><span class="best">0.3118</span></td><td class='center'><span class="best">0.1395</span></td><td class='center'><span class="best">49.52</span></td><td class='center'><span class="best">4.9164</span></td><td class='center'><span class="best">74.99</span></td><td class='center'><span class="second">0.6422</span></td></tr><tr><td class='center'>C_PSNR</td><td>SwinIR</td><td>ICCV'21</td><td class='center'>31.33</td><td class='center'>0.4012</td><td class='center'>0.2386</td><td class='center'>108.64</td><td class='center'>8.0489</td><td class='center'>54.80</td><td class='center'>0.3717</td></tr><tr><td class='center'>C_PSNR</td><td>PASD</td><td>ICCV'23</td><td class='center'><span class="second">31.41</span></td><td class='center'>0.3549</td><td class='center'>0.1968</td><td class='center'>98.74</td><td class='center'>6.1762</td><td class='center'>67.97</td><td class='center'>0.4750</td></tr><tr><td class='center'>C_PSNR</td><td>DiffBIR</td><td>ECCV'24</td><td class='center'>28.33</td><td class='center'>0.3258</td><td class='center'><span class="second">0.1601</span></td><td class='center'>65.86</td><td class='center'>6.4165</td><td class='center'><span class="best">75.67</span></td><td class='center'><span class="best">0.7839</span></td></tr><tr><td class='center'>C_PSNR</td><td>SILO</td><td>ICCV'25</td><td class='center'>26.79</td><td class='center'>0.3945</td><td class='center'>0.2209</td><td class='center'>85.72</td><td class='center'>7.4365</td><td class='center'>51.04</td><td class='center'>0.3961</td></tr><tr><td class='center'>C_PSNR</td><td>Moe-DiffIR</td><td>ECCV'24</td><td class='center'><span class="best">32.00</span></td><td class='center'><span class="second">0.3126</span></td><td class='center'>0.1610</td><td class='center'><span class="best">61.01</span></td><td class='center'><span class="second">5.5442</span></td><td class='center'>62.79</td><td class='center'>0.5226</td></tr><tr><td class='center'>C_PSNR</td><td>Ours</td><td>--</td><td class='center'>28.88</td><td class='center'><span class="best">0.3069</span></td><td class='center'><span class="best">0.1472</span></td><td class='center'><span class="second">61.53</span></td><td class='center'><span class="best">5.0523</span></td><td class='center'><span class="second">75.62</span></td><td class='center'><span class="second">0.7047</span></td></tr><tr><td class='center'>C_SSIM</td><td>SwinIR</td><td>ICCV'21</td><td class='center'><span class="second">31.19</span></td><td class='center'>0.3876</td><td class='center'>0.2275</td><td class='center'>104.32</td><td class='center'>7.7405</td><td class='center'>54.54</td><td class='center'>0.3906</td></tr><tr><td class='center'>C_SSIM</td><td>PASD</td><td>ICCV'23</td><td class='center'>31.11</td><td class='center'>0.3311</td><td class='center'>0.1753</td><td class='center'>82.30</td><td class='center'>5.2647</td><td class='center'>68.92</td><td class='center'>0.5033</td></tr><tr><td class='center'>C_SSIM</td><td>DiffBIR</td><td>ECCV'24</td><td class='center'>28.20</td><td class='center'>0.3238</td><td class='center'>0.1542</td><td class='center'>57.85</td><td class='center'>6.1586</td><td class='center'><span class="best">75.93</span></td><td class='center'><span class="best">0.7897</span></td></tr><tr><td class='center'>C_SSIM</td><td>SILO</td><td>ICCV'25</td><td class='center'>26.70</td><td class='center'>0.3965</td><td class='center'>0.2197</td><td class='center'>85.32</td><td class='center'>7.3315</td><td class='center'>48.38</td><td class='center'>0.3795</td></tr><tr><td class='center'>C_SSIM</td><td>Moe-DiffIR</td><td>ECCV'24</td><td class='center'><span class="best">31.50</span></td><td class='center'><span class="second">0.3041</span></td><td class='center'><span class="second">0.1534</span></td><td class='center'><span class="best">50.12</span></td><td class='center'><span class="second">5.2141</span></td><td class='center'>58.90</td><td class='center'>0.4554</td></tr><tr><td class='center'>C_SSIM</td><td>Ours</td><td>--</td><td class='center'>29.10</td><td class='center'><span class="best">0.3026</span></td><td class='center'><span class="best">0.1438</span></td><td class='center'><span class="second">55.81</span></td><td class='center'><span class="best">4.7695</span></td><td class='center'><span class="second">75.43</span></td><td class='center'><span class="second">0.6822</span></td></tr><tr><td class='center'>JPEG-WEBP</td><td>SwinIR</td><td>ICCV'21</td><td class='center'><span class="best">31.08</span></td><td class='center'>0.4207</td><td class='center'>0.2441</td><td class='center'>98.19</td><td class='center'>8.4159</td><td class='center'>51.18</td><td class='center'>0.3434</td></tr><tr><td class='center'>JPEG-WEBP</td><td>PASD</td><td>ICCV'23</td><td class='center'>30.35</td><td class='center'>0.4081</td><td class='center'>0.1857</td><td class='center'>74.43</td><td class='center'>5.5501</td><td class='center'><span class="second">64.76</span></td><td class='center'>0.4217</td></tr><tr><td class='center'>JPEG-WEBP</td><td>DiffBIR</td><td>ECCV'24</td><td class='center'>28.81</td><td class='center'>0.4290</td><td class='center'>0.2227</td><td class='center'>82.12</td><td class='center'>6.6159</td><td class='center'>63.07</td><td class='center'><span class="second">0.5424</span></td></tr><tr><td class='center'>JPEG-WEBP</td><td>SILO</td><td>ICCV'25</td><td class='center'>27.32</td><td class='center'><span class="second">0.3602</span></td><td class='center'>0.1756</td><td class='center'><span class="second">55.46</span></td><td class='center'>5.8331</td><td class='center'>59.22</td><td class='center'>0.4534</td></tr><tr><td class='center'>JPEG-WEBP</td><td>Moe-DiffIR</td><td>ECCV'24</td><td class='center'><span class="second">30.93</span></td><td class='center'>0.3720</td><td class='center'><span class="second">0.1754</span></td><td class='center'>69.87</td><td class='center'><span class="best">4.8520</span></td><td class='center'>59.59</td><td class='center'>0.4405</td></tr><tr><td class='center'>JPEG-WEBP</td><td>Ours</td><td>--</td><td class='center'>27.87</td><td class='center'><span class="best">0.3492</span></td><td class='center'><span class="best">0.1620</span></td><td class='center'><span class="best">52.77</span></td><td class='center'><span class="second">5.1375</span></td><td class='center'><span class="best">68.16</span></td><td class='center'><span class="best">0.5573</span></td></tr></tbody>
-      </table>
-    </div>
-  </div>
-</section>
+    <section id="pdfs" class="section">
+      <div class="container">
+        <h2>Result PDFs</h2>
+        <div class="card"><p>These are embedded as-is from the <code>/pdf/</code> folder. Replace with your actual files using the same names/paths.</p></div>
+        {''.join(pdf_figs)}
+      </div>
+    </section>
 
-    
-<section id="pdfs" class="section">
-  <div class="container">
-    <h2>补充材料（PDF）</h2>
-    <div class="card"><p>把你的 PDF 放到 <code>assets/pdf/</code>，并把下方的 <code>data</code> 路径改成你的文件名。</p></div>
+    <section id="bibtex" class="section"><div class="container"><h2>BibTeX</h2>
+      <div class="card"><pre>@article{{c-relic,
+  title={{ {title} }},
+  author={{ Alice and Bob and Carol and Dave }},
+  journal={{ arXiv preprint arXiv:xxxx.xxxxx }},
+  year={{ 2025 }}
+}}</pre></div></div></section>
+  </main>
 
-    <figure class="card" style="margin-top:12px">
-      <figcaption style="margin-bottom:6px;color:#4b5563">Results（示例）</figcaption>
-      <object class="pdf-embed" data="assets/pdf/results.pdf" type="application/pdf">
-        <div class="pdf-fallback"><a href="assets/pdf/results.pdf" target="_blank" rel="noopener">打开 results.pdf</a></div>
-      </object>
-    </figure>
-
-    <figure class="card" style="margin-top:12px">
-      <figcaption style="margin-bottom:6px;color:#4b5563">Appendix（示例）</figcaption>
-      <object class="pdf-embed" data="assets/pdf/appendix.pdf" type="application/pdf">
-        <div class="pdf-fallback"><a href="assets/pdf/appendix.pdf" target="_blank" rel="noopener">打开 appendix.pdf</a></div>
-      </object>
-    </figure>
-
-    <figure class="card" style="margin-top:12px">
-      <figcaption style="margin-bottom:6px;color:#4b5563">More Examples（示例）</figcaption>
-      <object class="pdf-embed" data="assets/pdf/examples.pdf" type="application/pdf">
-        <div class="pdf-fallback"><a href="assets/pdf/examples.pdf" target="_blank" rel="noopener">打开 examples.pdf</a></div>
-      </object>
-    </figure>
-  </div>
-</section>
-
-</main>
-
-  <footer><div class="container">© <span id="y"></span> Your Name</div></footer>
+  <footer class="footer"><div class="container">© <span id="y"></span> Your Name</div></footer>
   <script>document.getElementById('y').textContent=new Date().getFullYear()</script>
-</body></html>
+</body></html>"""
+
+open(os.path.join(root, "index.html"), "w", encoding="utf-8").write(index)
+
+# README
+open(os.path.join(root, "README.md"), "w", encoding="utf-8").write(textwrap.dedent("""\
+# C-ReLIC — LLaVA-style (English, PDFs only)
+
+## What this includes
+- English-only page with your title and abstract.
+- A quantitative results table (HTML).
+- A "Result PDFs" section that embeds the following files from `/pdf/`:
+  - `pdf/jpeg10_web1_225.pdf`
+  - `pdf/jpeg10_web1_258.pdf`
+  - `pdf/jpeg10_web1_265.pdf`
+  - `pdf/jpeg10_web1_294.pdf`
+  - `pdf/jpeg10_web1_297.pdf`
+  - `pdf/jpeg10_web1_298.pdf`
+
+## How to use
+1. Put your actual PDFs into the `pdf/` folder with the exact names above.
+2. Upload everything to your GitHub repo root and enable GitHub Pages (Deploy from a branch → `main / (root)`).
+3. Open your site.
+
+Tip: If mobile browsers don’t render PDF inline, the page shows a fallback “Open PDF” link.
+"""))
+
+# Zip it
+zip_path = "/mnt/data/c-relic-llava-style-pdf-en.zip"
+with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+    for basepath, _, files in os.walk(root):
+        for name in files:
+            full = os.path.join(basepath, name)
+            arc = os.path.relpath(full, root)
+            z.write(full, arcname=arc)
+
+zip_path
